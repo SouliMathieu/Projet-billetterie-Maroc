@@ -177,13 +177,19 @@ export default {
     this.loadReservation()
     this.loadUserPoints()
     
-    // Vérifier si on revient de PayPal
+    // Vérifier si on revient de PayPal avec les bons paramètres
     const urlParams = new URLSearchParams(window.location.search)
-    const paymentId = urlParams.get('paymentId')
+    const token = urlParams.get('token')
     const payerId = urlParams.get('PayerID')
     
-    if (paymentId && payerId) {
-      this.capturePayPalPayment(paymentId)
+    console.log('URL Params:', { token, payerId })
+    
+    if (token && payerId) {
+      console.log('Retour de PayPal détecté, capture en cours...')
+      this.capturePayPalPayment(token)
+    } else {
+      // Vérifier le statut si pas de paramètres PayPal
+      setTimeout(() => this.checkPaymentStatus(), 1000)
     }
   },
   methods: {
@@ -198,11 +204,32 @@ export default {
         
         if (!this.reservation) {
           this.error = 'Réservation non trouvée'
+        } else if (this.reservation.statut === 'confirme') {
+          this.paymentCompleted = true
+          this.loading = false
+          return
         }
       } catch (error) {
+        console.error('Erreur chargement réservation:', error)
         this.error = 'Erreur lors du chargement de la réservation'
       } finally {
         this.loading = false
+      }
+    },
+    
+    async checkPaymentStatus() {
+      try {
+        const token = localStorage.getItem('token')
+        const response = await axios.get(`http://localhost/Billet/backend/api/reservations.php?id=${this.reservationId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        
+        if (response.data.statut === 'confirme') {
+          this.paymentCompleted = true
+          this.loading = false
+        }
+      } catch (error) {
+        console.error('Erreur vérification statut:', error)
       }
     },
     
@@ -249,59 +276,134 @@ export default {
           headers: { 'Authorization': `Bearer ${token}` }
         })
         
-        // Rediriger vers PayPal
-        window.location.href = response.data.approval_url
+        console.log('Réponse création commande:', response.data)
+        
+        if (response.data.status === 'success' && response.data.approval_url) {
+          // Rediriger vers PayPal
+          window.location.href = response.data.approval_url
+        } else {
+          throw new Error('URL d\'approbation PayPal non reçue')
+        }
         
       } catch (error) {
+        console.error('Erreur initiation paiement:', error)
         this.error = error.response?.data?.message || 'Erreur lors de l\'initialisation du paiement'
         this.processingPayment = false
       }
     },
     
-async capturePayPalPayment(orderId) {
-  try {
-    this.loading = true;
-    const token = localStorage.getItem('token');
-    
-    // 1. Capture the payment
-    const paymentResponse = await axios.post(
-      'http://localhost/Billet/backend/api/paypal-payment.php',
-      { action: 'capture_order', order_id: orderId },
-      { headers: { 'Authorization': `Bearer ${token}` } }
-    );
+    async capturePayPalPayment(token) {
+      try {
+        this.loading = true
+        this.error = null
+        const authToken = localStorage.getItem('token')
+        
+        console.log('Capture du paiement PayPal pour token:', token)
+        
+        // CORRECTION: Utiliser le token comme order_id
+        const paymentResponse = await axios.post(
+          'http://localhost/Billet/backend/api/paypal-payment.php',
+          { 
+            action: 'capture_order', 
+            order_id: token  // Le token est en fait l'order_id de PayPal
+          },
+          { 
+            headers: { 
+              'Authorization': `Bearer ${authToken}`,
+              'Content-Type': 'application/json'
+            } 
+          }
+        )
 
-    if (paymentResponse.data.status === "success") {
-      const reservationId = paymentResponse.data.reservation_id;
-      
-      // 2. Generate PDF tickets
-      const pdfResponse = await this.generateAndSendTickets(reservationId);
-      
-      // 3. Send email with tickets
-      await axios.post(
-        'http://localhost/Billet/backend/api/send-email-emailjs.php',
-        { 
-          reservation_id: reservationId,
-          pdf_base64: pdfResponse.pdf_base64 
-        },
-        { headers: { 'Authorization': `Bearer ${token}` } }
-      );
-      
-      // 4. Add loyalty points
-      await this.addLoyaltyPoints(reservationId);
-      
-      // 5. Update UI
-      this.paymentCompleted = true;
-      this.loading = false;
-      
-      // Clean URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  } catch (error) {
-    console.error('Error in payment process:', error);
-    this.error = error.response?.data?.message || 'Erreur lors du processus de paiement';
-    this.loading = false;
-  }
-},
+        console.log('Réponse capture paiement:', paymentResponse.data)
+
+        if (paymentResponse.data.status === "success") {
+          const reservationId = paymentResponse.data.reservation_id
+          
+          try {
+            // Étapes post-paiement
+            console.log('Génération des billets PDF...')
+            const pdfResponse = await this.generateTickets(reservationId)
+            
+            console.log('Envoi de l\'email avec les billets...')
+            await this.sendEmailWithTickets(reservationId, pdfResponse.pdf_base64)
+            
+            console.log('Ajout des points de fidélité...')
+            await this.addLoyaltyPoints(reservationId)
+            
+          } catch (postPaymentError) {
+            console.warn('Erreur dans les étapes post-paiement:', postPaymentError)
+            this.error = 'Paiement réussi, mais certaines étapes post-paiement ont échoué. Vos billets seront disponibles dans votre profil.'
+          }
+          
+          // Succès
+          this.paymentCompleted = true
+          this.loading = false
+          
+          // Nettoyer l'URL
+          window.history.replaceState({}, document.title, window.location.pathname)
+          
+        } else {
+          throw new Error(paymentResponse.data.message || 'Échec du paiement')
+        }
+        
+      } catch (error) {
+        console.error('Erreur dans le processus de paiement:', error)
+        
+        let errorMessage = 'Erreur lors du processus de paiement'
+        
+        if (error.response) {
+          console.error('Erreur HTTP:', error.response.status, error.response.data)
+          errorMessage = error.response.data.message || `Erreur ${error.response.status}: ${error.response.statusText}`
+        } else if (error.request) {
+          console.error('Erreur réseau:', error.request)
+          errorMessage = 'Erreur de connexion au serveur'
+        } else {
+          console.error('Erreur:', error.message)
+          errorMessage = error.message
+        }
+        
+        this.error = errorMessage
+        this.loading = false
+      }
+    },
+    
+    async generateTickets(reservationId) {
+      try {
+        const token = localStorage.getItem('token')
+        const response = await axios.post(
+          'http://localhost/Billet/backend/api/generate-pdf.php',
+          { reservation_id: reservationId },
+          {
+            headers: { 
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        )
+        return response.data
+      } catch (error) {
+        console.error("Erreur génération PDF:", error)
+        throw error
+      }
+    },
+    
+    async sendEmailWithTickets(reservationId, pdfBase64) {
+      try {
+        const token = localStorage.getItem('token')
+        await axios.post(
+          'http://localhost/Billet/backend/api/send-email-emailjs.php',
+          { 
+            reservation_id: reservationId,
+            pdf_base64: pdfBase64 
+          },
+          { headers: { 'Authorization': `Bearer ${token}` } }
+        )
+      } catch (error) {
+        console.error("Erreur envoi email:", error)
+        throw error
+      }
+    },
     
     async addLoyaltyPoints(reservationId) {
       try {
@@ -316,27 +418,6 @@ async capturePayPalPayment(orderId) {
         console.error('Erreur lors de l\'ajout des points:', error)
       }
     },
-    
-// Dans votre frontend (PaymentView.vue)
-async generateAndSendTickets(reservationId) {
-  try {
-    const token = localStorage.getItem('token');
-    const response = await axios.post(
-      'http://localhost/Billet/backend/api/generate-pdf.php',
-      { reservation_id: reservationId },
-      {
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-    return response.data;
-  } catch (error) {
-    console.error("Erreur génération PDF:", error);
-    throw error;
-  }
-},
     
     async downloadTickets() {
       try {
@@ -370,3 +451,17 @@ async generateAndSendTickets(reservationId) {
   }
 }
 </script>
+
+<style scoped>
+.card {
+  @apply bg-white rounded-lg shadow-md;
+}
+
+.btn-primary {
+  @apply bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded transition-colors;
+}
+
+.btn-secondary {
+  @apply bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded transition-colors;
+}
+</style>
