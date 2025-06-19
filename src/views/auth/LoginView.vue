@@ -101,32 +101,27 @@ async login() {
   try {
     const response = await axios.post(
       'http://localhost/Billet/backend/api/auth/login.php',
-      JSON.stringify(this.form), // Convertir explicitement en JSON
+      this.form, // Pas besoin de JSON.stringify ici
       {
         headers: {
           'Content-Type': 'application/json'
-        },
-        withCredentials: true // Important pour les cookies/sessions
+        }
       }
     );
     
     if (response.data.success) {
-      localStorage.setItem('auth', JSON.stringify(response.data));
+      // Stockage correct des données
+      localStorage.setItem('token', response.data.token);
+      localStorage.setItem('user', JSON.stringify(response.data.user));
+      
+      // Redirection explicite
       this.$router.push('/profile');
     } else {
       this.error = response.data.message || "Erreur de connexion";
     }
   } catch (error) {
+    this.error = this.getErrorMessage(error);
     console.error('Login error:', error);
-    if (error.response) {
-      this.error = error.response.data?.message || 
-                 error.response.statusText || 
-                 "Erreur de serveur";
-    } else if (error.request) {
-      this.error = "Pas de réponse du serveur - vérifiez votre connexion";
-    } else {
-      this.error = "Erreur de configuration de la requête";
-    }
   } finally {
     this.loading = false;
   }

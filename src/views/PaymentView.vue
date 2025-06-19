@@ -271,7 +271,8 @@ export default {
         const token = localStorage.getItem('token')
         const response = await axios.post('http://localhost/Billet/backend/api/paypal-payment.php', {
           action: 'create_order',
-          reservation_id: this.reservationId
+          reservation_id: this.reservationId,
+          points_used: this.pointsToUse // Ajout de cette ligne
         }, {
           headers: { 'Authorization': `Bearer ${token}` }
         })

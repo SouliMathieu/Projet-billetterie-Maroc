@@ -21,6 +21,10 @@
               <router-link to="/profile" class="nav-link">
                 <i class="fas fa-user mr-1"></i>Profil
               </router-link>
+              <!-- Bouton Admin -->
+              <router-link to="/admin" class="admin-link">
+                <i class="fas fa-cog mr-1"></i>Admin
+              </router-link>
               <button @click="logout" class="nav-link">
                 <i class="fas fa-sign-out-alt mr-1"></i>Déconnexion
               </button>
@@ -56,6 +60,10 @@
           <router-link to="/profile" class="mobile-nav-link" @click="mobileMenuOpen = false">
             <i class="fas fa-user mr-2"></i>Profil
           </router-link>
+          <!-- Bouton Admin Mobile -->
+          <router-link to="/admin" class="mobile-admin-link" @click="mobileMenuOpen = false">
+            <i class="fas fa-cog mr-2"></i>Admin
+          </router-link>
           <button @click="logout" class="mobile-nav-link w-full text-left">
             <i class="fas fa-sign-out-alt mr-2"></i>Déconnexion
           </button>
@@ -84,13 +92,17 @@ export default {
   computed: {
     isAuthenticated() {
       return !!localStorage.getItem('token')
-    }
+    },
+    isAdmin() {
+  const user = JSON.parse(localStorage.getItem('user') || '{}')
+  return this.isAuthenticated && user.role === 'admin'
+}
   },
   methods: {
     logout() {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    this.$router.push('/login'); 
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      this.$router.push('/login'); 
     }
   }
 }
@@ -103,5 +115,18 @@ export default {
 
 .mobile-nav-link {
   @apply text-white hover:text-yellow-300 block px-3 py-2 rounded-md text-base font-medium transition-colors;
+}
+
+/* Styles spéciaux pour le bouton Admin */
+.admin-link {
+  @apply text-white hover:text-yellow-300 px-3 py-2 rounded-md text-sm font-medium transition-colors;
+  @apply bg-red-700 hover:bg-red-600;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.mobile-admin-link {
+  @apply text-white hover:text-yellow-300 block px-3 py-2 rounded-md text-base font-medium transition-colors;
+  @apply bg-red-700 hover:bg-red-600;
+  border: 1px solid rgba(255, 255, 255, 0.3);
 }
 </style>

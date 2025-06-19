@@ -97,14 +97,82 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 throw new Exception("Réservation non trouvée ou déjà traitée", 404);
             }
 
-            // Création commande PayPal
+            // Gestion des points de fidélité
+            $points_utilises = $data->points_used ?? 0;
+            $points_utilises = min($points_utilises, $user_data['points'] ?? 0);
+
+            if ($points_utilises > ($user_data['points'] ?? 0)) {
+                throw new Exception("Vous n'avez pas assez de points", 400);
+            }
+
+            // Calcul du prix final après réduction
+            $prix_final = $reservation['prix_total'] - $points_utilises;
+            if ($prix_final < 0) {
+                $prix_final = 0;
+            }
+
+            // Mise à jour de la réservation avec les points utilisés
+            $update_stmt = $db->prepare("UPDATE reservations SET 
+                points_utilises = ?,
+                prix_final = ?
+                WHERE id = ?");
+            $update_stmt->execute([
+                $points_utilises,
+                $prix_final,
+                $reservation['id']
+            ]);
+
+            // Vérifier si le paiement est entièrement couvert par les points
+            if ($prix_final <= 0) {
+                // Paiement entièrement par points - pas besoin de PayPal
+                $db->beginTransaction();
+                try {
+                    $update_stmt = $db->prepare("UPDATE reservations SET 
+                        statut = 'confirme',
+                        confirmed_at = NOW(),
+                        expires_at = NULL,
+                        transaction_id = ?
+                        WHERE id = ?");
+                    
+                    $transaction_id = 'POINTS_PAYMENT_' . time() . '_' . $reservation['id'];
+                    $update_stmt->execute([$transaction_id, $reservation['id']]);
+                    
+                    // Déduire les points utilisés
+                    $deduct_points_stmt = $db->prepare("UPDATE users SET points_fidelite = points_fidelite - ? WHERE id = ?");
+                    $deduct_points_stmt->execute([$points_utilises, $user_data['user_id']]);
+                    
+                    // Ajouter les points de fidélité gagnés (basé sur le prix original)
+                    $pointsToAdd = floor($reservation['prix_total'] / 10);
+                    $add_points_stmt = $db->prepare("UPDATE users SET points_fidelite = points_fidelite + ? WHERE id = ?");
+                    $add_points_stmt->execute([$pointsToAdd, $user_data['user_id']]);
+                    
+                    $db->commit();
+                    
+                    echo json_encode([
+                        "status" => "success",
+                        "message" => "Paiement effectué entièrement avec les points de fidélité",
+                        "reservation_id" => $reservation['id'],
+                        "payment_method" => "points",
+                        "points_used" => $points_utilises,
+                        "points_earned" => $pointsToAdd,
+                        "no_paypal_needed" => true
+                    ]);
+                    exit;
+                    
+                } catch (Exception $e) {
+                    $db->rollBack();
+                    throw $e;
+                }
+            }
+
+            // Création commande PayPal pour le montant restant
             $access_token = getPayPalAccessToken($client_id, $client_secret, $base_url);
             if (!$access_token) {
                 throw new Exception("Erreur d'authentification PayPal", 500);
             }
             
-            // Conversion MAD en USD (taux approximatif)
-            $amount_usd = round($reservation['prix_total'] / 10, 2);
+            // Conversion MAD en USD avec le prix final
+            $amount_usd = round($prix_final / 10, 2); // Conversion MAD en USD
             $unit_amount = round($amount_usd / $reservation['nombre_billets'], 2);
             
             $order_data = [
@@ -121,7 +189,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                             ]
                         ]
                     ],
-                    "description" => "Billets: " . $reservation['equipe_domicile'] . " vs " . $reservation['equipe_exterieur'],
+                    "description" => "Billets: " . $reservation['equipe_domicile'] . " vs " . $reservation['equipe_exterieur'] . 
+                                    ($points_utilises > 0 ? " (Réduction: {$points_utilises} points)" : ""),
                     "items" => [
                         [
                             "name" => "Billet " . $reservation['categorie'] . " - " . $reservation['equipe_domicile'] . " vs " . $reservation['equipe_exterieur'],
@@ -198,7 +267,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 "status" => "success",
                 "order_id" => $order['id'],
                 "approval_url" => $approve_url,
-                "reservation_id" => $reservation['id']
+                "reservation_id" => $reservation['id'],
+                "points_used" => $points_utilises,
+                "final_amount" => $prix_final
             ]);
 
         } elseif ($data->action == 'capture_order' && !empty($data->order_id)) {
@@ -316,15 +387,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     throw new Exception("Impossible de mettre à jour la réservation", 500);
                 }
                 
-                $db->commit();
+                // Déduire les points utilisés si il y en a
+                if ($reservation['points_utilises'] > 0) {
+                    $deduct_points_stmt = $db->prepare("UPDATE users SET points_fidelite = points_fidelite - ? WHERE id = ?");
+                    $deduct_points_stmt->execute([$reservation['points_utilises'], $user_data['user_id']]);
+                }
                 
+                // Ajouter les points de fidélité gagnés (basé sur le prix original)
+                $pointsToAdd = floor($reservation['prix_total'] / 10); // 1 point par 10 DH
+                $updatePoints = $db->prepare("UPDATE users SET points_fidelite = points_fidelite + ? WHERE id = ?");
+                $updatePoints->execute([$pointsToAdd, $user_data['user_id']]);
+                
+                $db->commit();
+
                 echo json_encode([
                     "status" => "success",
                     "message" => "Paiement confirmé avec succès",
                     "reservation_id" => $reservation['id'],
                     "payment_id" => $payment_id,
                     "order_id" => $order_id,
-                    "amount_captured" => $amount_captured
+                    "amount_captured" => $amount_captured,
+                    "points_used" => $reservation['points_utilises'],
+                    "points_earned" => $pointsToAdd
                 ]);
                 
             } catch (Exception $e) {

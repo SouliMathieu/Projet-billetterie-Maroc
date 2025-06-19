@@ -154,21 +154,44 @@ export default {
     await this.initializeUserData();
     await this.loadReservations();
   },
-  methods: {
-    async initializeUserData() {
-      try {
-        const savedUser = localStorage.getItem('user');
-        this.user = savedUser ? JSON.parse(savedUser) : {};
-        
-        // Vérification de l'authentification
-        if (!localStorage.getItem('token')) {
-          this.redirectToLogin();
-        }
-      } catch (e) {
-        console.error('Error parsing user data:', e);
+methods: {
+  async initializeUserData() {
+    try {
+      // 1. Vérifiez d'abord les données en cache
+      const savedUser = localStorage.getItem('user');
+      const token = localStorage.getItem('token');
+      
+      if (!token || !savedUser) {
         this.redirectToLogin();
+        return;
       }
-    },
+
+      // 2. Essayez de récupérer depuis l'API
+      try {
+        const response = await axios.get(
+          'http://localhost/Billet/backend/api/auth/user',
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+        
+        // Mettre à jour uniquement si la requête réussit
+        this.user = response.data;
+        localStorage.setItem('user', JSON.stringify(this.user));
+      } catch (apiError) {
+        console.error('API fetch failed, using cached data:', apiError);
+        // Utiliser les données en cache si l'API échoue
+        this.user = JSON.parse(savedUser);
+      }
+      
+    } catch (e) {
+      console.error('Initialization error:', e);
+      this.redirectToLogin();
+    }
+  },
     async loadReservations() {
       try {
         const response = await axios.get(

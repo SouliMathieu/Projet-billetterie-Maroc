@@ -204,8 +204,10 @@ export default {
     async loadData() {
       try {
         const response = await axios.get('http://localhost/Billet/backend/api/admin-matches.php', {
-          headers: { 'Admin-Token': 'admin123' }
-        })
+  headers: { 
+  'Authorization': `Bearer ${localStorage.getItem('token')}`
+}
+})
         
         this.matches = response.data
         this.calculateStats()
