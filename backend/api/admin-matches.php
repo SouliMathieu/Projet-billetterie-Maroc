@@ -1,7 +1,7 @@
 <?php
 header("Access-Control-Allow-Origin: http://localhost:5173");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization");
+header("Access-Control-Allow-Headers: Content-Type, Authorization, Admin-Token"); // Ajout de Admin-Token
 header("Content-Type: application/json; charset=UTF-8");
 
 if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
@@ -16,7 +16,11 @@ $db = $database->getConnection();
 // Vérification admin simple (à améliorer avec un vrai système d'auth admin)
 function isAdmin() {
     $headers = getallheaders();
-    $admin_token = $headers['Admin-Token'] ?? '';
+    // Vérifier plusieurs variations possibles du header
+    $admin_token = $headers['Admin-Token'] ?? 
+                   $headers['admin-token'] ?? 
+                   $headers['ADMIN-TOKEN'] ?? 
+                   $_SERVER['HTTP_ADMIN_TOKEN'] ?? '';
     return $admin_token === 'admin123'; // Token simple pour la démo
 }
 

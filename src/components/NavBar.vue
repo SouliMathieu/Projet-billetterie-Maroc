@@ -21,8 +21,8 @@
               <router-link to="/profile" class="nav-link">
                 <i class="fas fa-user mr-1"></i>Profil
               </router-link>
-              <!-- Bouton Admin -->
-              <router-link to="/admin" class="admin-link">
+              <!-- Bouton Admin visible seulement si admin authentifié -->
+              <router-link v-if="isAdminAuthenticated" to="/admin" class="admin-link">
                 <i class="fas fa-cog mr-1"></i>Admin
               </router-link>
               <button @click="logout" class="nav-link">
@@ -60,8 +60,8 @@
           <router-link to="/profile" class="mobile-nav-link" @click="mobileMenuOpen = false">
             <i class="fas fa-user mr-2"></i>Profil
           </router-link>
-          <!-- Bouton Admin Mobile -->
-          <router-link to="/admin" class="mobile-admin-link" @click="mobileMenuOpen = false">
+          <!-- Bouton Admin Mobile visible seulement si admin authentifié -->
+          <router-link v-if="isAdminAuthenticated" to="/admin" class="mobile-admin-link" @click="mobileMenuOpen = false">
             <i class="fas fa-cog mr-2"></i>Admin
           </router-link>
           <button @click="logout" class="mobile-nav-link w-full text-left">
@@ -93,15 +93,15 @@ export default {
     isAuthenticated() {
       return !!localStorage.getItem('token')
     },
-    isAdmin() {
-  const user = JSON.parse(localStorage.getItem('user') || '{}')
-  return this.isAuthenticated && user.role === 'admin'
-}
+    isAdminAuthenticated() {
+      return localStorage.getItem('admin_token') === 'admin123'
+    }
   },
   methods: {
     logout() {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      localStorage.removeItem('admin_token'); // Supprimer aussi le token admin
       this.$router.push('/login'); 
     }
   }

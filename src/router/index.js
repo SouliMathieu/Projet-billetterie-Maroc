@@ -1,10 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-// 1. Importations statiques (garanties sans erreur)
+// 1. Importations statiques avec chemin relatif
 import HomeView from '../views/HomeView.vue'
 import LoginView from '../views/auth/LoginView.vue'
 import RegisterView from '../views/auth/RegisterView.vue'
 import FootballMatchesView from '../views/FootballMatchesView.vue'
+// Utilisez un chemin relatif au lieu de l'alias @
+import AdminDashboard from '../views/admin/AdminDashboard.vue'
 
 // 2. Importations dynamiques simplifiées
 const ReservationFormView = () => import('../views/ReservationFormView.vue')
@@ -54,7 +56,13 @@ const routes = [
     props: true,
     meta: { requiresAuth: true }
   },
-  // Fallback pour les routes inconnues
+  {
+    path: '/admin',
+    name: 'admin',
+    component: AdminDashboard,
+    // SUPPRIMÉ: meta: { requiresAuth: true }
+    // La page admin gère sa propre authentification
+  },
   {
     path: '/:pathMatch(.*)*',
     redirect: '/'
@@ -66,16 +74,18 @@ const router = createRouter({
   routes
 })
 
-// 3. Garde de navigation ultra-simplifiée
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
   
-  // Si la route nécessite une connexion
+  // Permettre l'accès libre à la route admin
+  if (to.name === 'admin') {
+    return next()
+  }
+  
   if (to.meta.requiresAuth && !token) {
     return next('/login')
   }
   
-  // Si un utilisateur connecté essaie d'accéder à une page pour invités
   if (to.meta.forGuests && token) {
     return next('/profile')
   }
