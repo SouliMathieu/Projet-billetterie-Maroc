@@ -51,7 +51,12 @@
             <!-- Teams -->
             <div class="flex items-center justify-between">
               <div class="text-center flex-1">
-                <img :src="match.logo_domicile" :alt="match.equipe_domicile" class="w-12 h-12 mx-auto mb-2 rounded-full bg-white p-1">
+                <img 
+                  :src="getTeamLogo(match.logo_domicile)" 
+                  :alt="`Logo ${match.equipe_domicile}`" 
+                  class="team-logo w-16 h-16 mx-auto mb-2"
+                  @error="handleImageError"
+                />
                 <p class="font-semibold text-sm">{{ match.equipe_domicile }}</p>
               </div>
               
@@ -60,7 +65,12 @@
               </div>
               
               <div class="text-center flex-1">
-                <img :src="match.logo_exterieur" :alt="match.equipe_exterieur" class="w-12 h-12 mx-auto mb-2 rounded-full bg-white p-1">
+                <img 
+                  :src="getTeamLogo(match.logo_exterieur)" 
+                  :alt="`Logo ${match.equipe_exterieur}`" 
+                  class="team-logo w-16 h-16 mx-auto mb-2"
+                  @error="handleImageError"
+                />
                 <p class="font-semibold text-sm">{{ match.equipe_exterieur }}</p>
               </div>
             </div>
@@ -151,33 +161,76 @@ export default {
   },
   methods: {
     async loadMatches() {
-  this.loading = true
-  this.error = null
-  
-  try {
-    const response = await axios.get('http://localhost/Billet/backend/api/matches.php')
-    console.log('Response:', response.data) // Pour débugger
-    
-    if (Array.isArray(response.data)) {
-      this.matches = response.data
-    } else if (response.data.data) {
-      this.matches = response.data.data
-    } else {
-      this.matches = []
+      this.loading = true
+      this.error = null
+      
+      try {
+        const response = await axios.get('http://localhost/Billet/backend/api/matches.php')
+        console.log('Response:', response.data) // Pour débugger
+        
+        if (Array.isArray(response.data)) {
+          this.matches = response.data
+        } else if (response.data.data) {
+          this.matches = response.data.data
+        } else {
+          this.matches = []
+        }
+      } catch (error) {
+        console.error('Erreur complète:', error)
+        if (error.response) {
+          this.error = `Erreur serveur: ${error.response.status}`
+        } else if (error.request) {
+          this.error = 'Impossible de contacter le serveur'
+        } else {
+          this.error = 'Erreur lors du chargement des matchs'
+        }
+      } finally {
+        this.loading = false
+      }
+    },
+
+    getTeamLogo(logoUrl) {
+      // Si le logo_url est déjà une URL complète, on la retourne
+      if (logoUrl && logoUrl.startsWith('http')) {
+        return logoUrl
+      }
+      // Sinon, on utilise le chemin local depuis le dossier public
+      return logoUrl || '/default-team-logo.png'
+    },
+
+    handleImageError(event) {
+      // Image de fallback en cas d'erreur de chargement
+      console.log('Erreur de chargement d\'image:', event.target.src)
+      event.target.src = '/default-team-logo.png'
     }
-  } catch (error) {
-    console.error('Erreur complète:', error)
-    if (error.response) {
-      this.error = `Erreur serveur: ${error.response.status}`
-    } else if (error.request) {
-      this.error = 'Impossible de contacter le serveur'
-    } else {
-      this.error = 'Erreur lors du chargement des matchs'
-    }
-  } finally {
-    this.loading = false
-  }
-}
   }
 }
 </script>
+
+<style scoped>
+.team-logo {
+  @apply object-contain rounded-full border-2 border-white shadow-lg;
+  transition: transform 0.3s ease;
+}
+
+.team-logo:hover {
+  @apply transform scale-110;
+}
+
+.match-card {
+  @apply bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300;
+}
+
+.gold-accent {
+  color: #FFD700;
+  text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+}
+
+.btn-primary {
+  @apply bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200;
+}
+
+.btn-primary:hover {
+  @apply transform scale-105;
+}
+</style>

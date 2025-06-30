@@ -34,16 +34,26 @@
           
           <div class="space-y-4">
             <!-- Teams -->
-            <div class="flex items-center justify-between p-4 bg-gradient-to-r from-red-50 to-green-50 rounded-lg">
-              <div class="text-center">
-                <img :src="match.logo_domicile" :alt="match.equipe_domicile" class="w-16 h-16 mx-auto mb-2 rounded-full">
+            <div class="teams-container">
+              <div class="team-section">
+                <img 
+                  :src="getTeamLogo(match.logo_domicile)" 
+                  :alt="`Logo ${match.equipe_domicile}`" 
+                  class="team-logo-reservation"
+                  @error="handleImageError"
+                />
                 <p class="font-semibold">{{ match.equipe_domicile }}</p>
               </div>
-              <div class="text-center">
-                <span class="text-3xl font-bold text-red-600">VS</span>
+              <div class="vs-section-reservation">
+                <span class="vs-text-reservation">VS</span>
               </div>
-              <div class="text-center">
-                <img :src="match.logo_exterieur" :alt="match.equipe_exterieur" class="w-16 h-16 mx-auto mb-2 rounded-full">
+              <div class="team-section">
+                <img 
+                  :src="getTeamLogo(match.logo_exterieur)" 
+                  :alt="`Logo ${match.equipe_exterieur}`" 
+                  class="team-logo-reservation"
+                  @error="handleImageError"
+                />
                 <p class="font-semibold">{{ match.equipe_exterieur }}</p>
               </div>
             </div>
@@ -241,7 +251,7 @@
                 <i class="fas fa-spinner fa-spin mr-2"></i>
                 Traitement...
               </span>
-              <span v-else>
+              <span v-else">
                 <i class="fas fa-credit-card mr-2"></i>
                 Procéder au paiement
               </span>
@@ -325,44 +335,52 @@ export default {
     this.prefillUserInfo()
   },
   methods: {
-   async loadMatch() {
-  try {
-    const token = localStorage.getItem('token')
-    if (!token) {
-      this.$router.push('/login')
-      return
-    }
+    async loadMatch() {
+      try {
+        const token = localStorage.getItem('token')
+        if (!token) {
+          this.$router.push('/login')
+          return
+        }
 
-    const response = await axios.get(`http://localhost/Billet/backend/api/matches.php`, {
-      headers: {
-        'Authorization': `Bearer ${token}`
+        const response = await axios.get(`http://localhost/Billet/backend/api/matches.php`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+        
+        if (!response.data || !Array.isArray(response.data)) {
+          throw new Error('Invalid response format')
+        }
+        
+        this.match = response.data.find(m => m.id == this.matchId)
+        
+        if (!this.match) {
+          this.error = 'Match non trouvé'
+        } else {
+          // Debug pour vérifier les logos
+          console.log('Match trouvé:', {
+            id: this.match.id,
+            domicile: this.match.equipe_domicile,
+            exterieur: this.match.equipe_exterieur,
+            logo_domicile: this.match.logo_domicile,
+            logo_exterieur: this.match.logo_exterieur
+          })
+          await this.loadCityInfo()
+        }
+      } catch (error) {
+        if (error.response && error.response.status === 401) {
+          localStorage.removeItem('token')
+          localStorage.removeItem('user')
+          this.$router.push('/login')
+        } else {
+          this.error = 'Erreur lors du chargement du match'
+          console.error('Error loading match:', error)
+        }
+      } finally {
+        this.loading = false
       }
-    })
-    
-    if (!response.data || !Array.isArray(response.data)) {
-      throw new Error('Invalid response format')
-    }
-    
-    this.match = response.data.find(m => m.id == this.matchId)
-    
-    if (!this.match) {
-      this.error = 'Match non trouvé'
-    } else {
-      await this.loadCityInfo()
-    }
-  } catch (error) {
-    if (error.response && error.response.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      this.$router.push('/login')
-    } else {
-      this.error = 'Erreur lors du chargement du match'
-      console.error('Error loading match:', error)
-    }
-  } finally {
-    this.loading = false
-  }
-},
+    },
 
     async loadCityInfo() {
       if (!this.match || !this.match.stade_ville) return
@@ -373,114 +391,139 @@ export default {
         this.cityInfo = response.data
       } catch (error) {
         console.error('Erreur lors du chargement des infos ville:', error)
-        // En cas d'erreur, on peut afficher des infos par défaut ou ne rien afficher
         this.cityInfo = null
       } finally {
         this.loadingCityInfo = false
       }
     },
     
-prefillUserInfo() {
-  try {
-    const userString = localStorage.getItem('user')
-    if (userString) {
-      const user = JSON.parse(userString)
-      if (user && typeof user === 'object') {
-        this.form.nom_client = user.nom || ''
-        this.form.email_client = user.email || ''
-        this.form.telephone_client = user.telephone || ''
+    prefillUserInfo() {
+      try {
+        const userString = localStorage.getItem('user')
+        if (userString) {
+          const user = JSON.parse(userString)
+          if (user && typeof user === 'object') {
+            this.form.nom_client = user.nom || ''
+            this.form.email_client = user.email || ''
+            this.form.telephone_client = user.telephone || ''
+          }
+        }
+      } catch (e) {
+        console.error('Error parsing user data:', e)
+        localStorage.removeItem('user')
       }
-    }
-  } catch (e) {
-    console.error('Error parsing user data:', e)
-    // Nettoyer les données invalides
-    localStorage.removeItem('user')
-  }
-},
-    
-async submitReservation() {
-  this.submitting = true;
-  this.formError = null;
+    },
 
-  try {
-    // Vérification des données avant envoi
-    if (!this.validateForm()) {
-      return;
-    }
-
-    const token = localStorage.getItem('token');
-    if (!token) {
-      this.$router.push('/login');
-      return;
-    }
-
-    // Afficher les données envoyées pour debug
-    console.log('Données envoyées:', {
-      match_id: this.matchId,
-      ...this.form
-    });
-
-    const response = await axios.post('http://localhost/Billet/backend/api/reservations.php', {
-      match_id: this.matchId,
-      ...this.form
-    }, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    console.log('Réponse du serveur:', response.data);
-
-    if (response.data.reservation_id) {
-      this.$router.push(`/payment/${response.data.reservation_id}`);
-    } else {
-      throw new Error('Réponse inattendue du serveur');
-    }
-  } catch (error) {
-    console.error('Erreur complète:', error);
-    
-    if (error.response) {
-      // Erreur retournée par le serveur
-      console.error('Détails erreur:', error.response.data);
-      this.formError = error.response.data.message || 'Erreur lors de la réservation';
+    getTeamLogo(logoUrl) {
+      console.log('Logo URL reçue:', logoUrl) // Debug
       
-      // Si token invalide, rediriger vers login
-      if (error.response.status === 401) {
-        localStorage.removeItem('token');
-        this.$router.push('/login');
+      if (!logoUrl) {
+        return '/default-team-logo.png'
       }
-    } else {
-      // Erreur réseau ou autre
-      this.formError = error.message || 'Erreur de connexion au serveur';
+      
+      if (logoUrl.startsWith('http')) {
+        return logoUrl
+      }
+      
+      const finalUrl = logoUrl.startsWith('/') ? logoUrl : '/' + logoUrl
+      console.log('URL finale:', finalUrl) // Debug
+      
+      return finalUrl
+    },
+
+    handleImageError(event) {
+      console.log('Erreur de chargement d\'image:', event.target.src)
+      
+      // Éviter la boucle infinie
+      if (event.target.src.includes('default-team-logo.png')) {
+        // Si même l'image par défaut échoue, utiliser une image SVG inline
+        event.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMzIiIGZpbGw9IiNGM0Y0RjYiLz4KPHN2ZyB4PSIxNiIgeT0iMTYiIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM2QjcyODAiIHN0cm9rZS13aWR0aD0iMiI+CjxwYXRoIGQ9Im0xNSAxOC0zLTMtMy0zIDMtMyAzIDMiLz4KPC9zdmc+Cjwvc3ZnPgo='
+        event.target.style.backgroundColor = '#f3f4f6'
+        event.target.style.border = '1px solid #e5e7eb'
+      } else {
+        event.target.src = '/default-team-logo.png'
+      }
+    },
+    
+    async submitReservation() {
+      this.submitting = true;
+      this.formError = null;
+
+      try {
+        if (!this.validateForm()) {
+          return;
+        }
+
+        const token = localStorage.getItem('token');
+        if (!token) {
+          this.$router.push('/login');
+          return;
+        }
+
+        console.log('Données envoyées:', {
+          match_id: this.matchId,
+          ...this.form
+        });
+
+        const response = await axios.post('http://localhost/Billet/backend/api/reservations.php', {
+          match_id: this.matchId,
+          ...this.form
+        }, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        console.log('Réponse du serveur:', response.data);
+
+        if (response.data.reservation_id) {
+          this.$router.push(`/payment/${response.data.reservation_id}`);
+        } else {
+          throw new Error('Réponse inattendue du serveur');
+        }
+      } catch (error) {
+        console.error('Erreur complète:', error);
+        
+        if (error.response) {
+          console.error('Détails erreur:', error.response.data);
+          this.formError = error.response.data.message || 'Erreur lors de la réservation';
+          
+          if (error.response.status === 401) {
+            localStorage.removeItem('token');
+            this.$router.push('/login');
+          }
+        } else {
+          this.formError = error.message || 'Erreur de connexion au serveur';
+        }
+      } finally {
+        this.submitting = false;
+      }
+    },
+
+    validateForm() {
+      if (!this.form.categorie) {
+        this.formError = 'Veuillez sélectionner une catégorie';
+        return false;
+      }
+      
+      if (!this.form.nombre_billets) {
+        this.formError = 'Veuillez sélectionner le nombre de billets';
+        return false;
+      }
+      
+      if (!this.form.nom_client || !this.form.email_client || !this.form.telephone_client) {
+        this.formError = 'Veuillez remplir tous les champs obligatoires';
+        return false;
+      }
+      
+      if (!this.matchId) {
+        this.formError = 'Identifiant de match manquant';
+        return false;
+      }
+      
+      return true;
     }
-  } finally {
-    this.submitting = false;
-  }
-},
-validateForm() {
-  if (!this.form.categorie) {
-    this.formError = 'Veuillez sélectionner une catégorie';
-    return false;
-  }
-  
-  if (!this.form.nombre_billets) {
-    this.formError = 'Veuillez sélectionner le nombre de billets';
-    return false;
-  }
-  
-  if (!this.form.nom_client || !this.form.email_client || !this.form.telephone_client) {
-    this.formError = 'Veuillez remplir tous les champs obligatoires';
-    return false;
-  }
-  
-  if (!this.matchId) {
-    this.formError = 'Identifiant de match manquant';
-    return false;
-  }
-  
-  return true;
-}
   }
 }
 </script>
